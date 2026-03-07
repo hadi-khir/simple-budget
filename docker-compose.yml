@@ -1,0 +1,15 @@
+services:
+  app:
+    build: .
+    ports:
+      - "3000:3000"
+    volumes:
+      - budget-data:/data
+    environment:
+      - NODE_ENV=production
+      - JWT_SECRET=change-this-secret-in-production
+      - PORT=3000
+      - DATA_DIR=/data
+
+volumes:
+  budget-data:
