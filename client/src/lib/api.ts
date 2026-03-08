@@ -39,15 +39,15 @@ export const api = {
     list: () => request<Budget[]>('/budgets'),
     create: (data: { month: number; year: number }) =>
       request<Budget>('/budgets', { method: 'POST', body: JSON.stringify(data) }),
-    get: (id: number) => request<BudgetDetail>(`/budgets/${id}`),
-    delete: (id: number) => request<void>(`/budgets/${id}`, { method: 'DELETE' }),
-    addIncome: (budgetId: number, data: { name: string; amount: number }) =>
-      request<IncomeSource>(`/budgets/${budgetId}/income`, {
+    get: (uuid: string) => request<BudgetDetail>(`/budgets/${uuid}`),
+    delete: (uuid: string) => request<void>(`/budgets/${uuid}`, { method: 'DELETE' }),
+    addIncome: (budgetUuid: string, data: { name: string; amount: number }) =>
+      request<IncomeSource>(`/budgets/${budgetUuid}/income`, {
         method: 'POST',
         body: JSON.stringify(data),
       }),
-    addItem: (budgetId: number, data: { category: string; name: string; planned?: number; actual?: number }) =>
-      request<BudgetItem>(`/budgets/${budgetId}/items`, {
+    addItem: (budgetUuid: string, data: { category: string; name: string; planned?: number; actual?: number }) =>
+      request<BudgetItem>(`/budgets/${budgetUuid}/items`, {
         method: 'POST',
         body: JSON.stringify(data),
       }),
@@ -73,6 +73,7 @@ export interface User {
 
 export interface Budget {
   id: number;
+  uuid: string;
   user_id: number;
   month: number;
   year: number;

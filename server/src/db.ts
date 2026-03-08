@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
+import { randomUUID } from 'crypto';
 
 const dataDir = process.env.DATA_DIR || path.join(__dirname, '../../data');
 if (!fs.existsSync(dataDir)) {
@@ -24,6 +25,7 @@ db.exec(`
 
   CREATE TABLE IF NOT EXISTS budgets (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    uuid TEXT UNIQUE,
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     month INTEGER NOT NULL,
     year INTEGER NOT NULL,
@@ -47,5 +49,19 @@ db.exec(`
     sort_order INTEGER NOT NULL DEFAULT 0
   );
 `);
+
+// Migration: add uuid column for existing databases
+try {
+  db.exec('ALTER TABLE budgets ADD COLUMN uuid TEXT UNIQUE');
+} catch {
+  // Column already exists
+}
+
+// Backfill UUIDs for any existing rows
+const rowsWithoutUuid = db.prepare('SELECT id FROM budgets WHERE uuid IS NULL').all() as { id: number }[];
+const setUuid = db.prepare('UPDATE budgets SET uuid = ? WHERE id = ?');
+for (const row of rowsWithoutUuid) {
+  setUuid.run(randomUUID(), row.id);
+}
 
 export default db;

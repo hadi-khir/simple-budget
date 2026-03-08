@@ -89,7 +89,7 @@ export default function DashboardPage() {
       const now = new Date();
       const cm = data.find(b => b.month === now.getMonth() + 1 && b.year === now.getFullYear());
       if (cm) {
-        api.budgets.get(cm.id).then(detail => {
+        api.budgets.get(cm.uuid).then(detail => {
           setCurrentMonthDetail(detail);
           setQaDetail(detail);
         });
@@ -120,7 +120,7 @@ export default function DashboardPage() {
       const b = await api.budgets.create({ month: newMonth, year: newYear });
       setBudgets(prev => [b, ...prev]);
       closeForm();
-      navigate(`/budgets/${b.id}`);
+      navigate(`/budgets/${b.uuid}`);
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -133,7 +133,7 @@ export default function DashboardPage() {
     setError('');
     try {
       const b = await api.budgets.create({ month: newMonth, year: newYear });
-      const detail = await api.budgets.get(b.id);
+      const detail = await api.budgets.get(b.uuid);
       await Promise.all(
         detail.items
           .filter(item => (wizardPlanned[wizardKey(item.category, item.name)] ?? 0) > 0)
@@ -143,12 +143,12 @@ export default function DashboardPage() {
       // If it's the current month, refresh the detail
       const now = new Date();
       if (b.month === now.getMonth() + 1 && b.year === now.getFullYear()) {
-        const refreshed = await api.budgets.get(b.id);
+        const refreshed = await api.budgets.get(b.uuid);
         setCurrentMonthDetail(refreshed);
         setQaDetail(refreshed);
       }
       closeForm();
-      navigate(`/budgets/${b.id}`);
+      navigate(`/budgets/${b.uuid}`);
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -167,10 +167,10 @@ export default function DashboardPage() {
       if (!prev) { setError('No previous budget found to copy from.'); return; }
 
       const [prevDetail, newBudget] = await Promise.all([
-        api.budgets.get(prev.id),
+        api.budgets.get(prev.uuid),
         api.budgets.create({ month: newMonth, year: newYear }),
       ]);
-      const newDetail = await api.budgets.get(newBudget.id);
+      const newDetail = await api.budgets.get(newBudget.uuid);
 
       const newItemKeys = new Set(newDetail.items.map(i => `${i.category}:${i.name}`));
       await Promise.all([
@@ -180,19 +180,19 @@ export default function DashboardPage() {
         }),
         ...prevDetail.items
           .filter(p => !newItemKeys.has(`${p.category}:${p.name}`) && p.planned > 0)
-          .map(p => api.budgets.addItem(newBudget.id, { category: p.category, name: p.name, planned: p.planned })),
-        ...prevDetail.income.map(inc => api.budgets.addIncome(newBudget.id, { name: inc.name, amount: inc.amount })),
+          .map(p => api.budgets.addItem(newBudget.uuid, { category: p.category, name: p.name, planned: p.planned })),
+        ...prevDetail.income.map(inc => api.budgets.addIncome(newBudget.uuid, { name: inc.name, amount: inc.amount })),
       ]);
 
       setBudgets(prev => [newBudget, ...prev]);
       const now = new Date();
       if (newBudget.month === now.getMonth() + 1 && newBudget.year === now.getFullYear()) {
-        const refreshed = await api.budgets.get(newBudget.id);
+        const refreshed = await api.budgets.get(newBudget.uuid);
         setCurrentMonthDetail(refreshed);
         setQaDetail(refreshed);
       }
       closeForm();
-      navigate(`/budgets/${newBudget.id}`);
+      navigate(`/budgets/${newBudget.uuid}`);
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -200,24 +200,24 @@ export default function DashboardPage() {
     }
   }
 
-  async function deleteBudget(id: number) {
+  async function deleteBudget(uuid: string) {
     if (!confirm('Delete this budget?')) return;
-    await api.budgets.delete(id);
-    setBudgets(prev => prev.filter(b => b.id !== id));
-    if (currentMonthDetail?.id === id) setCurrentMonthDetail(null);
-    if (qaDetail?.id === id) setQaDetail(null);
+    await api.budgets.delete(uuid);
+    setBudgets(prev => prev.filter(b => b.uuid !== uuid));
+    if (currentMonthDetail?.uuid === uuid) setCurrentMonthDetail(null);
+    if (qaDetail?.uuid === uuid) setQaDetail(null);
   }
 
   // --- Quick add ---
 
-  async function changeQaBudget(budgetId: number) {
+  async function changeQaBudget(budgetUuid: string) {
     setQaCategory('');
     setQaItemId('');
-    if (currentMonthDetail?.id === budgetId) {
+    if (currentMonthDetail?.uuid === budgetUuid) {
       setQaDetail(currentMonthDetail);
       return;
     }
-    const detail = await api.budgets.get(budgetId);
+    const detail = await api.budgets.get(budgetUuid);
     setQaDetail(detail);
   }
 
@@ -340,7 +340,7 @@ export default function DashboardPage() {
                   variant="ghost"
                   size="sm"
                   className="w-full text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 text-xs"
-                  onClick={() => navigate(`/budgets/${currentMonthDetail.id}`)}
+                  onClick={() => navigate(`/budgets/${currentMonthDetail.uuid}`)}
                 >
                   View full budget →
                 </Button>
@@ -358,11 +358,11 @@ export default function DashboardPage() {
                   <label className="block text-xs font-medium mb-1 text-muted-foreground">Budget</label>
                   <select
                     className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
-                    value={qaDetail?.id ?? ''}
-                    onChange={e => changeQaBudget(Number(e.target.value))}
+                    value={qaDetail?.uuid ?? ''}
+                    onChange={e => changeQaBudget(e.target.value)}
                   >
                     {budgets.map(b => (
-                      <option key={b.id} value={b.id}>
+                      <option key={b.uuid} value={b.uuid}>
                         {MONTHS[b.month - 1]} {b.year}
                       </option>
                     ))}
@@ -612,9 +612,9 @@ export default function DashboardPage() {
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {budgets.map(b => (
               <Card
-                key={b.id}
+                key={b.uuid}
                 className="cursor-pointer hover:border-indigo-300 hover:shadow-md transition-all group"
-                onClick={() => navigate(`/budgets/${b.id}`)}
+                onClick={() => navigate(`/budgets/${b.uuid}`)}
               >
                 <CardContent className="p-5 flex justify-between items-center">
                   <div>
@@ -625,7 +625,7 @@ export default function DashboardPage() {
                     variant="ghost"
                     size="icon"
                     className="opacity-0 group-hover:opacity-100 text-destructive hover:text-destructive hover:bg-destructive/10"
-                    onClick={e => { e.stopPropagation(); deleteBudget(b.id); }}
+                    onClick={e => { e.stopPropagation(); deleteBudget(b.uuid); }}
                   >
                     <Trash2 size={16} />
                   </Button>

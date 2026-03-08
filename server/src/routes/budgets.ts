@@ -1,4 +1,5 @@
 import { Router, Response } from 'express';
+import { randomUUID } from 'crypto';
 import db from '../db';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
 
@@ -53,9 +54,10 @@ router.post('/', (req: AuthRequest, res: Response): void => {
   }
 
   try {
+    const uuid = randomUUID();
     const result = db.prepare(
-      'INSERT INTO budgets (user_id, month, year) VALUES (?, ?, ?)'
-    ).run(req.userId, month, year);
+      'INSERT INTO budgets (uuid, user_id, month, year) VALUES (?, ?, ?, ?)'
+    ).run(uuid, req.userId, month, year);
 
     const budgetId = result.lastInsertRowid;
 
@@ -67,7 +69,7 @@ router.post('/', (req: AuthRequest, res: Response): void => {
     });
     insertMany(DEFAULT_ITEMS);
 
-    res.status(201).json({ id: budgetId, user_id: req.userId, month, year });
+    res.status(201).json({ id: budgetId, uuid, user_id: req.userId, month, year });
   } catch (err: any) {
     if (err.message?.includes('UNIQUE constraint failed')) {
       res.status(409).json({ error: 'Budget for this month already exists' });
@@ -79,7 +81,7 @@ router.post('/', (req: AuthRequest, res: Response): void => {
 
 router.get('/:id', (req: AuthRequest, res: Response): void => {
   const budget = db.prepare(
-    'SELECT * FROM budgets WHERE id = ? AND user_id = ?'
+    'SELECT * FROM budgets WHERE uuid = ? AND user_id = ?'
   ).get(req.params.id, req.userId) as any;
 
   if (!budget) {
@@ -97,7 +99,7 @@ router.get('/:id', (req: AuthRequest, res: Response): void => {
 
 router.delete('/:id', (req: AuthRequest, res: Response): void => {
   const budget = db.prepare(
-    'SELECT id FROM budgets WHERE id = ? AND user_id = ?'
+    'SELECT id FROM budgets WHERE uuid = ? AND user_id = ?'
   ).get(req.params.id, req.userId);
 
   if (!budget) {
@@ -105,14 +107,14 @@ router.delete('/:id', (req: AuthRequest, res: Response): void => {
     return;
   }
 
-  db.prepare('DELETE FROM budgets WHERE id = ? AND user_id = ?').run(req.params.id, req.userId);
+  db.prepare('DELETE FROM budgets WHERE uuid = ? AND user_id = ?').run(req.params.id, req.userId);
   res.status(204).end();
 });
 
 // Income routes nested under budget
 router.post('/:id/income', (req: AuthRequest, res: Response): void => {
   const budget = db.prepare(
-    'SELECT id FROM budgets WHERE id = ? AND user_id = ?'
+    'SELECT id FROM budgets WHERE uuid = ? AND user_id = ?'
   ).get(req.params.id, req.userId);
 
   if (!budget) {
@@ -135,17 +137,18 @@ router.post('/:id/income', (req: AuthRequest, res: Response): void => {
     return;
   }
 
+  const budgetIntId = (budget as any).id;
   const result = db.prepare(
     'INSERT INTO income_sources (budget_id, name, amount) VALUES (?, ?, ?)'
-  ).run(req.params.id, name.trim(), isNaN(parsedAmount) ? 0 : parsedAmount);
+  ).run(budgetIntId, name.trim(), isNaN(parsedAmount) ? 0 : parsedAmount);
 
-  res.status(201).json({ id: result.lastInsertRowid, budget_id: Number(req.params.id), name, amount: amount || 0 });
+  res.status(201).json({ id: result.lastInsertRowid, budget_id: budgetIntId, name, amount: amount || 0 });
 });
 
 // Items nested under budget
 router.post('/:id/items', (req: AuthRequest, res: Response): void => {
   const budget = db.prepare(
-    'SELECT id FROM budgets WHERE id = ? AND user_id = ?'
+    'SELECT id FROM budgets WHERE uuid = ? AND user_id = ?'
   ).get(req.params.id, req.userId);
 
   if (!budget) {
@@ -180,19 +183,20 @@ router.post('/:id/items', (req: AuthRequest, res: Response): void => {
     return;
   }
 
+  const budgetIntId = (budget as any).id;
   const maxOrder = db.prepare(
     'SELECT MAX(sort_order) as max FROM budget_items WHERE budget_id = ? AND category = ?'
-  ).get(req.params.id, category) as any;
+  ).get(budgetIntId, category) as any;
 
   const sort_order = (maxOrder?.max ?? -1) + 1;
 
   const result = db.prepare(
     'INSERT INTO budget_items (budget_id, category, name, planned, actual, sort_order) VALUES (?, ?, ?, ?, ?, ?)'
-  ).run(req.params.id, category, name.trim(), isNaN(parsedPlanned) ? 0 : parsedPlanned, isNaN(parsedActual) ? 0 : parsedActual, sort_order);
+  ).run(budgetIntId, category, name.trim(), isNaN(parsedPlanned) ? 0 : parsedPlanned, isNaN(parsedActual) ? 0 : parsedActual, sort_order);
 
   res.status(201).json({
     id: result.lastInsertRowid,
-    budget_id: Number(req.params.id),
+    budget_id: budgetIntId,
     category,
     name,
     planned: planned || 0,

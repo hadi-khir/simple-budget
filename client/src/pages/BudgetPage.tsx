@@ -62,7 +62,7 @@ export default function BudgetPage() {
   const [addingItem, setAddingItem] = useState<Record<Category, boolean>>({ fundamentals: false, fun: false, future: false });
 
   useEffect(() => {
-    api.budgets.get(Number(id))
+    api.budgets.get(id!)
       .then(setBudget)
       .catch(() => setError('Budget not found'))
       .finally(() => setLoading(false));
@@ -85,7 +85,7 @@ export default function BudgetPage() {
     if (!newIncomeName.trim() || !budget) return;
     setAddingIncome(true);
     try {
-      const income = await api.budgets.addIncome(budget.id, {
+      const income = await api.budgets.addIncome(budget.uuid, {
         name: newIncomeName.trim(),
         amount: parseFloat(newIncomeAmount) || 0,
       });
@@ -112,7 +112,7 @@ export default function BudgetPage() {
     if (!name || !budget) return;
     setAddingItem(prev => ({ ...prev, [cat]: true }));
     try {
-      const item = await api.budgets.addItem(budget.id, { category: cat, name });
+      const item = await api.budgets.addItem(budget.uuid, { category: cat, name });
       setBudget(b => b ? { ...b, items: [...b.items, item] } : b);
       setNewItemName(prev => ({ ...prev, [cat]: '' }));
     } finally {
