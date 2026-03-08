@@ -51,11 +51,13 @@ db.exec(`
 `);
 
 // Migration: add uuid column for existing databases
-try {
-  db.exec('ALTER TABLE budgets ADD COLUMN uuid TEXT UNIQUE');
-} catch {
-  // Column already exists
+const budgetCols = (db.prepare('PRAGMA table_info(budgets)').all() as { name: string }[]).map(c => c.name);
+if (!budgetCols.includes('uuid')) {
+  db.exec('ALTER TABLE budgets ADD COLUMN uuid TEXT');
 }
+
+// Ensure unique index exists (no-op if already present)
+db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_budgets_uuid ON budgets(uuid)');
 
 // Backfill UUIDs for any existing rows
 const rowsWithoutUuid = db.prepare('SELECT id FROM budgets WHERE uuid IS NULL').all() as { id: number }[];
