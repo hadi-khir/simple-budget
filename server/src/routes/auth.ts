@@ -1,10 +1,22 @@
 import { Router, Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import rateLimit from 'express-rate-limit';
 import db from '../db';
 import { authMiddleware, AuthRequest, JWT_SECRET } from '../middleware/auth';
 
 const router = Router();
+
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 20,
+  message: { error: 'Too many attempts, please try again later' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+router.use('/login', authLimiter);
+router.use('/signup', authLimiter);
 
 router.post('/signup', (req: Request, res: Response): void => {
   const { email, password, name } = req.body;
@@ -13,7 +25,18 @@ router.post('/signup', (req: Request, res: Response): void => {
     return;
   }
 
-  const existing = db.prepare('SELECT id FROM users WHERE email = ?').get(email);
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(email)) {
+    res.status(400).json({ error: 'Invalid email address' });
+    return;
+  }
+
+  if (typeof password !== 'string' || password.length < 8) {
+    res.status(400).json({ error: 'Password must be at least 8 characters' });
+    return;
+  }
+
+  const existing = db.prepare('SELECT id FROM users WHERE email = ?').get(email.toLowerCase().trim());
   if (existing) {
     res.status(409).json({ error: 'Email already in use' });
     return;

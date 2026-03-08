@@ -6,6 +6,7 @@ export interface AuthRequest extends Request {
 }
 
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-in-production';
+// In production, index.ts will have already exited if JWT_SECRET is not set
 
 export function authMiddleware(req: AuthRequest, res: Response, next: NextFunction): void {
   const authHeader = req.headers.authorization;

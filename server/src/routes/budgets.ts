@@ -45,6 +45,13 @@ router.post('/', (req: AuthRequest, res: Response): void => {
     return;
   }
 
+  const m = parseInt(month, 10);
+  const y = parseInt(year, 10);
+  if (isNaN(m) || m < 1 || m > 12 || isNaN(y) || y < 2000 || y > 2100) {
+    res.status(400).json({ error: 'Invalid month or year' });
+    return;
+  }
+
   try {
     const result = db.prepare(
       'INSERT INTO budgets (user_id, month, year) VALUES (?, ?, ?)'
@@ -98,7 +105,7 @@ router.delete('/:id', (req: AuthRequest, res: Response): void => {
     return;
   }
 
-  db.prepare('DELETE FROM budgets WHERE id = ?').run(req.params.id);
+  db.prepare('DELETE FROM budgets WHERE id = ? AND user_id = ?').run(req.params.id, req.userId);
   res.status(204).end();
 });
 
@@ -140,6 +147,12 @@ router.post('/:id/items', (req: AuthRequest, res: Response): void => {
   const { category, name, planned, actual } = req.body;
   if (!category || !name) {
     res.status(400).json({ error: 'category and name are required' });
+    return;
+  }
+
+  const validCategories = ['fundamentals', 'fun', 'future'];
+  if (!validCategories.includes(category)) {
+    res.status(400).json({ error: 'category must be fundamentals, fun, or future' });
     return;
   }
 
