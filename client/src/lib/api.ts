@@ -41,6 +41,7 @@ export const api = {
       request<Budget>('/budgets', { method: 'POST', body: JSON.stringify(data) }),
     get: (uuid: string) => request<BudgetDetail>(`/budgets/${uuid}`),
     delete: (uuid: string) => request<void>(`/budgets/${uuid}`, { method: 'DELETE' }),
+    getTransactions: (uuid: string) => request<Transaction[]>(`/budgets/${uuid}/transactions`),
     addIncome: (budgetUuid: string, data: { name: string; amount: number }) =>
       request<IncomeSource>(`/budgets/${budgetUuid}/income`, {
         method: 'POST',
@@ -51,6 +52,15 @@ export const api = {
         method: 'POST',
         body: JSON.stringify(data),
       }),
+  },
+  transactions: {
+    add: (itemId: number, amount: number) =>
+      request<{ transaction: Transaction; item: BudgetItem }>(`/items/${itemId}/transactions`, {
+        method: 'POST',
+        body: JSON.stringify({ amount }),
+      }),
+    delete: (id: number) =>
+      request<{ item: BudgetItem }>(`/transactions/${id}`, { method: 'DELETE' }),
   },
   income: {
     update: (id: number, data: { name?: string; amount?: number }) =>
@@ -99,4 +109,13 @@ export interface BudgetItem {
 export interface BudgetDetail extends Budget {
   income: IncomeSource[];
   items: BudgetItem[];
+}
+
+export interface Transaction {
+  id: number;
+  budget_item_id: number;
+  amount: number;
+  created_at: string;
+  item_name: string;
+  category: 'fundamentals' | 'fun' | 'future';
 }

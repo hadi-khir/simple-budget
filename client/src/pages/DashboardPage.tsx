@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { api, Budget, BudgetDetail } from '../lib/api';
+import { api, Budget, BudgetDetail, BudgetItem, Transaction } from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -59,6 +59,28 @@ function fmt(n: number) {
   return n.toLocaleString('en-CA', { style: 'currency', currency: 'CAD', maximumFractionDigits: 0 });
 }
 
+const TX_MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+function formatTxDate(dateStr: string) {
+  const d = new Date(dateStr.replace(' ', 'T') + 'Z');
+  const now = new Date();
+  const yearStr = d.getFullYear() !== now.getFullYear() ? `, ${d.getFullYear()}` : '';
+  const time = d.toLocaleTimeString('en-CA', { hour: 'numeric', minute: '2-digit', hour12: true });
+  return `${TX_MONTHS[d.getMonth()]} ${d.getDate()}${yearStr} · ${time}`;
+}
+
+const CAT_DOT: Record<string, string> = {
+  fundamentals: 'bg-blue-500',
+  fun: 'bg-purple-500',
+  future: 'bg-emerald-500',
+};
+
+const CAT_LABEL: Record<string, string> = {
+  fundamentals: 'Fundamentals',
+  fun: 'Fun',
+  future: 'Future You',
+};
+
 export default function DashboardPage() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
@@ -83,6 +105,11 @@ export default function DashboardPage() {
   const [qaAdding, setQaAdding] = useState(false);
   const [qaSuccess, setQaSuccess] = useState(false);
 
+  // Transaction log state
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [txBudgetUuid, setTxBudgetUuid] = useState('');
+  const [txLoading, setTxLoading] = useState(false);
+
   useEffect(() => {
     api.budgets.list().then(data => {
       setBudgets(data);
@@ -93,9 +120,20 @@ export default function DashboardPage() {
           setCurrentMonthDetail(detail);
           setQaDetail(detail);
         });
+        setTxBudgetUuid(cm.uuid);
+      } else if (data.length > 0) {
+        setTxBudgetUuid(data[0].uuid);
       }
     }).finally(() => setLoading(false));
   }, []);
+
+  useEffect(() => {
+    if (!txBudgetUuid) return;
+    setTxLoading(true);
+    api.budgets.getTransactions(txBudgetUuid)
+      .then(setTransactions)
+      .finally(() => setTxLoading(false));
+  }, [txBudgetUuid]);
 
   // --- Budget creation ---
 
@@ -223,19 +261,20 @@ export default function DashboardPage() {
 
   async function addTransaction() {
     if (!qaDetail || !qaItemId || !qaAmount || !qaCategory) return;
-    const item = qaDetail.items.find(i => i.id === qaItemId);
-    if (!item) return;
     const amount = parseFloat(qaAmount);
     if (isNaN(amount) || amount <= 0) return;
 
     setQaAdding(true);
     try {
-      const updated = await api.items.update(Number(qaItemId), { actual: item.actual + amount });
-      const patchItems = (items: typeof qaDetail.items) =>
+      const { transaction, item: updated } = await api.transactions.add(Number(qaItemId), amount);
+      const patchItems = (items: BudgetItem[]) =>
         items.map(i => i.id === updated.id ? updated : i);
       setQaDetail(prev => prev ? { ...prev, items: patchItems(prev.items) } : prev);
       if (currentMonthDetail?.id === qaDetail.id) {
         setCurrentMonthDetail(prev => prev ? { ...prev, items: patchItems(prev.items) } : prev);
+      }
+      if (txBudgetUuid === qaDetail.uuid) {
+        setTransactions(prev => [transaction, ...prev]);
       }
       setQaAmount('');
       setQaItemId('');
@@ -243,6 +282,21 @@ export default function DashboardPage() {
       setTimeout(() => setQaSuccess(false), 2500);
     } finally {
       setQaAdding(false);
+    }
+  }
+
+  async function deleteTransaction(txId: number) {
+    const tx = transactions.find(t => t.id === txId);
+    if (!tx) return;
+    const { item: updated } = await api.transactions.delete(txId);
+    setTransactions(prev => prev.filter(t => t.id !== txId));
+    const patchItems = (items: BudgetItem[]) =>
+      items.map(i => i.id === updated.id ? updated : i);
+    if (qaDetail?.uuid === txBudgetUuid) {
+      setQaDetail(prev => prev ? { ...prev, items: patchItems(prev.items) } : prev);
+    }
+    if (currentMonthDetail?.uuid === txBudgetUuid) {
+      setCurrentMonthDetail(prev => prev ? { ...prev, items: patchItems(prev.items) } : prev);
     }
   }
 
@@ -439,6 +493,59 @@ export default function DashboardPage() {
               </CardContent>
             </Card>
           </div>
+        )}
+
+        {/* Transaction log */}
+        {!loading && budgets.length > 0 && (
+          <Card>
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <CardTitle className="text-base font-semibold">Transactions</CardTitle>
+                <select
+                  className="h-8 rounded-md border border-input bg-background px-3 text-sm"
+                  value={txBudgetUuid}
+                  onChange={e => setTxBudgetUuid(e.target.value)}
+                >
+                  {budgets.map(b => (
+                    <option key={b.uuid} value={b.uuid}>
+                      {MONTHS[b.month - 1]} {b.year}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {txLoading ? (
+                <div className="flex justify-center py-6">
+                  <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary" />
+                </div>
+              ) : transactions.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-6">No transactions yet. Add one with Quick Add above.</p>
+              ) : (
+                <div className="divide-y">
+                  {transactions.map(tx => (
+                    <div key={tx.id} className="flex items-center gap-3 py-2.5 group">
+                      <span className={`w-2 h-2 rounded-full shrink-0 ${CAT_DOT[tx.category]}`} />
+                      <div className="flex-1 min-w-0">
+                        <span className="text-sm font-medium truncate block">{tx.item_name}</span>
+                        <span className="text-xs text-muted-foreground">{CAT_LABEL[tx.category]} · {formatTxDate(tx.created_at)}</span>
+                      </div>
+                      <span className="text-sm font-semibold text-red-600 shrink-0">
+                        -{tx.amount.toLocaleString('en-CA', { style: 'currency', currency: 'CAD' })}
+                      </span>
+                      <button
+                        onClick={() => deleteTransaction(tx.id)}
+                        className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-opacity p-1 rounded"
+                        title="Delete transaction"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
         )}
 
         {/* Budget creation form */}

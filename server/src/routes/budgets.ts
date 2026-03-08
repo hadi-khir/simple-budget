@@ -79,6 +79,28 @@ router.post('/', (req: AuthRequest, res: Response): void => {
   }
 });
 
+router.get('/:id/transactions', (req: AuthRequest, res: Response): void => {
+  const budget = db.prepare(
+    'SELECT * FROM budgets WHERE uuid = ? AND user_id = ?'
+  ).get(req.params.id, req.userId) as any;
+
+  if (!budget) {
+    res.status(404).json({ error: 'Budget not found' });
+    return;
+  }
+
+  const transactions = db.prepare(
+    `SELECT t.id, t.budget_item_id, t.amount, t.created_at,
+            bi.name as item_name, bi.category
+     FROM transactions t
+     JOIN budget_items bi ON t.budget_item_id = bi.id
+     WHERE bi.budget_id = ?
+     ORDER BY t.created_at DESC`
+  ).all(budget.id);
+
+  res.json(transactions);
+});
+
 router.get('/:id', (req: AuthRequest, res: Response): void => {
   const budget = db.prepare(
     'SELECT * FROM budgets WHERE uuid = ? AND user_id = ?'

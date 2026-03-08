@@ -48,6 +48,13 @@ db.exec(`
     actual REAL NOT NULL DEFAULT 0,
     sort_order INTEGER NOT NULL DEFAULT 0
   );
+
+  CREATE TABLE IF NOT EXISTS transactions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    budget_item_id INTEGER NOT NULL REFERENCES budget_items(id) ON DELETE CASCADE,
+    amount REAL NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
 `);
 
 // Migration: add uuid column for existing databases

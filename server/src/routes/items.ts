@@ -98,4 +98,59 @@ router.delete('/items/:id', (req: AuthRequest, res: Response): void => {
   res.status(204).end();
 });
 
+// Transactions
+router.post('/items/:id/transactions', (req: AuthRequest, res: Response): void => {
+  const budgetId = getBudgetIdForItem(req.params.id);
+  if (!budgetId || !userOwnsBudget(req.userId!, budgetId)) {
+    res.status(404).json({ error: 'Not found' });
+    return;
+  }
+
+  const amount = parseFloat(req.body.amount);
+  if (isNaN(amount) || amount <= 0) {
+    res.status(400).json({ error: 'amount must be a positive number' });
+    return;
+  }
+
+  const result = (db.transaction(() => {
+    const txResult = db.prepare(
+      'INSERT INTO transactions (budget_item_id, amount) VALUES (?, ?)'
+    ).run(req.params.id, amount);
+    db.prepare('UPDATE budget_items SET actual = actual + ? WHERE id = ?').run(amount, req.params.id);
+    const transaction = db.prepare(
+      `SELECT t.id, t.budget_item_id, t.amount, t.created_at,
+              bi.name as item_name, bi.category
+       FROM transactions t JOIN budget_items bi ON t.budget_item_id = bi.id
+       WHERE t.id = ?`
+    ).get(txResult.lastInsertRowid);
+    const item = db.prepare('SELECT * FROM budget_items WHERE id = ?').get(req.params.id);
+    return { transaction, item };
+  }))();
+
+  res.status(201).json(result);
+});
+
+router.delete('/transactions/:id', (req: AuthRequest, res: Response): void => {
+  const tx = db.prepare(
+    `SELECT t.*, bi.budget_id FROM transactions t
+     JOIN budget_items bi ON t.budget_item_id = bi.id
+     JOIN budgets b ON bi.budget_id = b.id
+     WHERE t.id = ? AND b.user_id = ?`
+  ).get(req.params.id, req.userId!) as any;
+
+  if (!tx) {
+    res.status(404).json({ error: 'Not found' });
+    return;
+  }
+
+  const item = (db.transaction(() => {
+    db.prepare('DELETE FROM transactions WHERE id = ?').run(req.params.id);
+    db.prepare('UPDATE budget_items SET actual = MAX(0, actual - ?) WHERE id = ?')
+      .run(tx.amount, tx.budget_item_id);
+    return db.prepare('SELECT * FROM budget_items WHERE id = ?').get(tx.budget_item_id);
+  }))();
+
+  res.json({ item });
+});
+
 export default router;
