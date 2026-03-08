@@ -1,16 +1,22 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { api, Budget } from '../lib/api';
+import { api, Budget, BudgetDetail } from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
-import { PlusCircle, Trash2, LogOut, ArrowLeft, ArrowRight, Copy, Sparkles, Zap } from 'lucide-react';
+import { PlusCircle, Trash2, LogOut, ArrowLeft, ArrowRight, Copy, Sparkles, Zap, CheckCircle2 } from 'lucide-react';
 import Logo from '../components/Logo';
 
 const MONTHS = [
   'January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December',
+];
+
+const CATEGORIES = [
+  { key: 'fundamentals' as const, label: 'Fundamentals', target: 50, color: 'text-blue-700', bar: 'bg-blue-500', bg: 'bg-blue-50' },
+  { key: 'fun' as const, label: 'Fun', target: 30, color: 'text-purple-700', bar: 'bg-purple-500', bg: 'bg-purple-50' },
+  { key: 'future' as const, label: 'Future You', target: 20, color: 'text-emerald-700', bar: 'bg-emerald-500', bg: 'bg-emerald-50' },
 ];
 
 const WIZARD_STEPS = [
@@ -46,7 +52,12 @@ const WIZARD_STEPS = [
   },
 ];
 
+type Category = 'fundamentals' | 'fun' | 'future';
 type FormMode = null | 'select' | 'wizard';
+
+function fmt(n: number) {
+  return n.toLocaleString('en-CA', { style: 'currency', currency: 'CAD', maximumFractionDigits: 0 });
+}
 
 export default function DashboardPage() {
   const { user, logout } = useAuth();
@@ -63,9 +74,30 @@ export default function DashboardPage() {
   const [wizardStep, setWizardStep] = useState(0);
   const [wizardPlanned, setWizardPlanned] = useState<Record<string, number>>({});
 
+  // Summary + quick add state
+  const [currentMonthDetail, setCurrentMonthDetail] = useState<BudgetDetail | null>(null);
+  const [qaDetail, setQaDetail] = useState<BudgetDetail | null>(null);
+  const [qaCategory, setQaCategory] = useState<Category | ''>('');
+  const [qaItemId, setQaItemId] = useState<number | ''>('');
+  const [qaAmount, setQaAmount] = useState('');
+  const [qaAdding, setQaAdding] = useState(false);
+  const [qaSuccess, setQaSuccess] = useState(false);
+
   useEffect(() => {
-    api.budgets.list().then(setBudgets).finally(() => setLoading(false));
+    api.budgets.list().then(data => {
+      setBudgets(data);
+      const now = new Date();
+      const cm = data.find(b => b.month === now.getMonth() + 1 && b.year === now.getFullYear());
+      if (cm) {
+        api.budgets.get(cm.id).then(detail => {
+          setCurrentMonthDetail(detail);
+          setQaDetail(detail);
+        });
+      }
+    }).finally(() => setLoading(false));
   }, []);
+
+  // --- Budget creation ---
 
   function openForm() {
     setFormMode('select');
@@ -79,13 +111,7 @@ export default function DashboardPage() {
     setError('');
   }
 
-  function wizardKey(category: string, item: string) {
-    return `${category}:${item}`;
-  }
-
-  function setPlanned(category: string, item: string, value: number) {
-    setWizardPlanned(prev => ({ ...prev, [wizardKey(category, item)]: value }));
-  }
+  function wizardKey(category: string, item: string) { return `${category}:${item}`; }
 
   async function quickCreate() {
     setSubmitting(true);
@@ -108,20 +134,19 @@ export default function DashboardPage() {
     try {
       const b = await api.budgets.create({ month: newMonth, year: newYear });
       const detail = await api.budgets.get(b.id);
-
-      const updates = detail.items
-        .filter(item => {
-          const amount = wizardPlanned[wizardKey(item.category, item.name)];
-          return amount && amount > 0;
-        })
-        .map(item =>
-          api.items.update(item.id, {
-            planned: wizardPlanned[wizardKey(item.category, item.name)],
-          })
-        );
-
-      await Promise.all(updates);
+      await Promise.all(
+        detail.items
+          .filter(item => (wizardPlanned[wizardKey(item.category, item.name)] ?? 0) > 0)
+          .map(item => api.items.update(item.id, { planned: wizardPlanned[wizardKey(item.category, item.name)] }))
+      );
       setBudgets(prev => [b, ...prev]);
+      // If it's the current month, refresh the detail
+      const now = new Date();
+      if (b.month === now.getMonth() + 1 && b.year === now.getFullYear()) {
+        const refreshed = await api.budgets.get(b.id);
+        setCurrentMonthDetail(refreshed);
+        setQaDetail(refreshed);
+      }
       closeForm();
       navigate(`/budgets/${b.id}`);
     } catch (err: any) {
@@ -139,48 +164,33 @@ export default function DashboardPage() {
       const prev = budgets
         .filter(b => b.year * 12 + b.month < targetOrd)
         .sort((a, b) => (b.year * 12 + b.month) - (a.year * 12 + a.month))[0];
-
-      if (!prev) {
-        setError('No previous budget found to copy from.');
-        setSubmitting(false);
-        return;
-      }
+      if (!prev) { setError('No previous budget found to copy from.'); return; }
 
       const [prevDetail, newBudget] = await Promise.all([
         api.budgets.get(prev.id),
         api.budgets.create({ month: newMonth, year: newYear }),
       ]);
-
       const newDetail = await api.budgets.get(newBudget.id);
 
-      // Update default items by matching name+category
-      const itemUpdates = newDetail.items.map(newItem => {
-        const match = prevDetail.items.find(
-          p => p.category === newItem.category && p.name === newItem.name
-        );
-        if (match && match.planned > 0) {
-          return api.items.update(newItem.id, { planned: match.planned });
-        }
-        return Promise.resolve();
-      });
-
-      // Add custom items from previous budget that don't exist in new
       const newItemKeys = new Set(newDetail.items.map(i => `${i.category}:${i.name}`));
-      const customItemAdds = prevDetail.items
-        .filter(p => !newItemKeys.has(`${p.category}:${p.name}`) && p.planned > 0)
-        .map(p => api.budgets.addItem(newBudget.id, {
-          category: p.category,
-          name: p.name,
-          planned: p.planned,
-        }));
+      await Promise.all([
+        ...newDetail.items.map(newItem => {
+          const match = prevDetail.items.find(p => p.category === newItem.category && p.name === newItem.name);
+          return match && match.planned > 0 ? api.items.update(newItem.id, { planned: match.planned }) : Promise.resolve();
+        }),
+        ...prevDetail.items
+          .filter(p => !newItemKeys.has(`${p.category}:${p.name}`) && p.planned > 0)
+          .map(p => api.budgets.addItem(newBudget.id, { category: p.category, name: p.name, planned: p.planned })),
+        ...prevDetail.income.map(inc => api.budgets.addIncome(newBudget.id, { name: inc.name, amount: inc.amount })),
+      ]);
 
-      // Copy income sources
-      const incomeAdds = prevDetail.income.map(inc =>
-        api.budgets.addIncome(newBudget.id, { name: inc.name, amount: inc.amount })
-      );
-
-      await Promise.all([...itemUpdates, ...customItemAdds, ...incomeAdds]);
       setBudgets(prev => [newBudget, ...prev]);
+      const now = new Date();
+      if (newBudget.month === now.getMonth() + 1 && newBudget.year === now.getFullYear()) {
+        const refreshed = await api.budgets.get(newBudget.id);
+        setCurrentMonthDetail(refreshed);
+        setQaDetail(refreshed);
+      }
       closeForm();
       navigate(`/budgets/${newBudget.id}`);
     } catch (err: any) {
@@ -194,12 +204,58 @@ export default function DashboardPage() {
     if (!confirm('Delete this budget?')) return;
     await api.budgets.delete(id);
     setBudgets(prev => prev.filter(b => b.id !== id));
+    if (currentMonthDetail?.id === id) setCurrentMonthDetail(null);
+    if (qaDetail?.id === id) setQaDetail(null);
   }
 
+  // --- Quick add ---
+
+  async function changeQaBudget(budgetId: number) {
+    setQaCategory('');
+    setQaItemId('');
+    if (currentMonthDetail?.id === budgetId) {
+      setQaDetail(currentMonthDetail);
+      return;
+    }
+    const detail = await api.budgets.get(budgetId);
+    setQaDetail(detail);
+  }
+
+  async function addTransaction() {
+    if (!qaDetail || !qaItemId || !qaAmount || !qaCategory) return;
+    const item = qaDetail.items.find(i => i.id === qaItemId);
+    if (!item) return;
+    const amount = parseFloat(qaAmount);
+    if (isNaN(amount) || amount <= 0) return;
+
+    setQaAdding(true);
+    try {
+      const updated = await api.items.update(Number(qaItemId), { actual: item.actual + amount });
+      const patchItems = (items: typeof qaDetail.items) =>
+        items.map(i => i.id === updated.id ? updated : i);
+      setQaDetail(prev => prev ? { ...prev, items: patchItems(prev.items) } : prev);
+      if (currentMonthDetail?.id === qaDetail.id) {
+        setCurrentMonthDetail(prev => prev ? { ...prev, items: patchItems(prev.items) } : prev);
+      }
+      setQaAmount('');
+      setQaItemId('');
+      setQaSuccess(true);
+      setTimeout(() => setQaSuccess(false), 2500);
+    } finally {
+      setQaAdding(false);
+    }
+  }
+
+  // --- Derived values ---
+
+  const totalIncome = currentMonthDetail?.income.reduce((s, i) => s + i.amount, 0) ?? 0;
+  const totalActual = currentMonthDetail?.items.reduce((s, i) => s + i.actual, 0) ?? 0;
+  const remaining = totalIncome - totalActual;
+
+  const qaItems = qaDetail?.items.filter(i => qaCategory && i.category === qaCategory) ?? [];
   const years = Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - 2 + i);
   const currentStep = WIZARD_STEPS[wizardStep];
   const isLastStep = wizardStep === WIZARD_STEPS.length - 1;
-
   const stepTotal = currentStep
     ? currentStep.items.reduce((s, name) => s + (wizardPlanned[wizardKey(currentStep.key, name)] || 0), 0)
     : 0;
@@ -221,8 +277,172 @@ export default function DashboardPage() {
         </div>
       </header>
 
-      <main className="max-w-4xl mx-auto px-4 py-8">
-        <div className="flex justify-between items-center mb-6">
+      <main className="max-w-4xl mx-auto px-4 py-8 space-y-6">
+
+        {/* Monthly summary + quick add */}
+        {currentMonthDetail && (
+          <div className="grid md:grid-cols-5 gap-4">
+
+            {/* Summary */}
+            <Card className="md:col-span-3">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base font-semibold text-indigo-700">
+                  {MONTHS[currentMonthDetail.month - 1]} {currentMonthDetail.year}
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {/* Top stats */}
+                <div className="grid grid-cols-3 gap-2 text-center">
+                  <div className="bg-emerald-50 rounded-lg p-2">
+                    <p className="text-xs text-muted-foreground">Income</p>
+                    <p className="font-bold text-emerald-700 text-sm">{fmt(totalIncome)}</p>
+                  </div>
+                  <div className="bg-red-50 rounded-lg p-2">
+                    <p className="text-xs text-muted-foreground">Spent</p>
+                    <p className="font-bold text-red-600 text-sm">{fmt(totalActual)}</p>
+                  </div>
+                  <div className={`rounded-lg p-2 ${remaining >= 0 ? 'bg-blue-50' : 'bg-orange-50'}`}>
+                    <p className="text-xs text-muted-foreground">Remaining</p>
+                    <p className={`font-bold text-sm ${remaining >= 0 ? 'text-blue-700' : 'text-orange-600'}`}>
+                      {fmt(remaining)}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Category bars */}
+                <div className="space-y-2.5">
+                  {CATEGORIES.map(cat => {
+                    const items = currentMonthDetail.items.filter(i => i.category === cat.key);
+                    const planned = items.reduce((s, i) => s + i.planned, 0);
+                    const actual = items.reduce((s, i) => s + i.actual, 0);
+                    const pct = planned > 0 ? Math.min((actual / planned) * 100, 100) : 0;
+                    const over = actual > planned && planned > 0;
+                    return (
+                      <div key={cat.key}>
+                        <div className="flex justify-between items-baseline mb-1">
+                          <span className={`text-xs font-medium ${cat.color}`}>{cat.label}</span>
+                          <span className="text-xs text-muted-foreground">
+                            {fmt(actual)} <span className="text-gray-400">/</span> {fmt(planned)}
+                          </span>
+                        </div>
+                        <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                          <div
+                            className={`h-full rounded-full transition-all ${over ? 'bg-red-500' : cat.bar}`}
+                            style={{ width: `${pct}%` }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="w-full text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 text-xs"
+                  onClick={() => navigate(`/budgets/${currentMonthDetail.id}`)}
+                >
+                  View full budget →
+                </Button>
+              </CardContent>
+            </Card>
+
+            {/* Quick add */}
+            <Card className="md:col-span-2">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base font-semibold">Quick Add</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {/* Budget selector */}
+                <div>
+                  <label className="block text-xs font-medium mb-1 text-muted-foreground">Budget</label>
+                  <select
+                    className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
+                    value={qaDetail?.id ?? ''}
+                    onChange={e => changeQaBudget(Number(e.target.value))}
+                  >
+                    {budgets.map(b => (
+                      <option key={b.id} value={b.id}>
+                        {MONTHS[b.month - 1]} {b.year}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Category selector */}
+                <div>
+                  <label className="block text-xs font-medium mb-1 text-muted-foreground">Category</label>
+                  <div className="grid grid-cols-3 gap-1.5">
+                    {CATEGORIES.map(cat => (
+                      <button
+                        key={cat.key}
+                        onClick={() => { setQaCategory(cat.key); setQaItemId(''); }}
+                        className={`py-1.5 px-1 rounded-md text-xs font-medium border-2 transition-colors ${
+                          qaCategory === cat.key
+                            ? `${cat.bg} ${cat.color} border-current`
+                            : 'bg-background border-transparent hover:bg-muted'
+                        }`}
+                      >
+                        {cat.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Item selector */}
+                <div>
+                  <label className="block text-xs font-medium mb-1 text-muted-foreground">Item</label>
+                  <select
+                    className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm disabled:opacity-50"
+                    value={qaItemId}
+                    onChange={e => setQaItemId(Number(e.target.value))}
+                    disabled={!qaCategory}
+                  >
+                    <option value="">Select an item…</option>
+                    {qaItems.map(item => (
+                      <option key={item.id} value={item.id}>{item.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Amount */}
+                <div>
+                  <label className="block text-xs font-medium mb-1 text-muted-foreground">Amount</label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">$</span>
+                    <Input
+                      type="number"
+                      min={0}
+                      step={0.01}
+                      placeholder="0.00"
+                      value={qaAmount}
+                      onChange={e => setQaAmount(e.target.value)}
+                      onKeyDown={e => e.key === 'Enter' && addTransaction()}
+                      className="pl-6 text-right"
+                    />
+                  </div>
+                </div>
+
+                {qaSuccess ? (
+                  <div className="flex items-center justify-center gap-2 py-2 text-emerald-600 text-sm font-medium">
+                    <CheckCircle2 size={16} /> Transaction added!
+                  </div>
+                ) : (
+                  <Button
+                    className="w-full"
+                    onClick={addTransaction}
+                    disabled={qaAdding || !qaItemId || !qaAmount || !qaCategory}
+                  >
+                    {qaAdding ? 'Adding…' : 'Add Transaction'}
+                  </Button>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
+        {/* Budget creation form */}
+        <div className="flex justify-between items-center">
           <h2 className="text-2xl font-bold">Your Budgets</h2>
           {formMode === null && (
             <Button onClick={openForm} className="gap-2">
@@ -233,7 +453,7 @@ export default function DashboardPage() {
 
         {/* Month/Year selector + options */}
         {formMode === 'select' && (
-          <Card className="mb-6 border-indigo-200">
+          <Card className="border-indigo-200">
             <CardHeader>
               <CardTitle className="text-lg">New Budget</CardTitle>
             </CardHeader>
@@ -246,9 +466,7 @@ export default function DashboardPage() {
                     value={newMonth}
                     onChange={e => setNewMonth(Number(e.target.value))}
                   >
-                    {MONTHS.map((m, i) => (
-                      <option key={i} value={i + 1}>{m}</option>
-                    ))}
+                    {MONTHS.map((m, i) => <option key={i} value={i + 1}>{m}</option>)}
                   </select>
                 </div>
                 <div>
@@ -308,9 +526,8 @@ export default function DashboardPage() {
 
         {/* Wizard */}
         {formMode === 'wizard' && currentStep && (
-          <Card className={`mb-6 border-2 ${currentStep.border}`}>
+          <Card className={`border-2 ${currentStep.border}`}>
             <CardHeader className={`${currentStep.bg} rounded-t-lg pb-3`}>
-              {/* Progress */}
               <div className="flex items-center gap-2 mb-3">
                 {WIZARD_STEPS.map((s, i) => (
                   <div key={s.key} className="flex items-center gap-2">
@@ -318,19 +535,14 @@ export default function DashboardPage() {
                       i < wizardStep ? 'bg-indigo-600 text-white' :
                       i === wizardStep ? 'bg-indigo-200 text-indigo-800 ring-2 ring-indigo-400' :
                       'bg-gray-200 text-gray-500'
-                    }`}>
-                      {i + 1}
-                    </div>
+                    }`}>{i + 1}</div>
                     {i < WIZARD_STEPS.length - 1 && (
                       <div className={`h-0.5 w-8 ${i < wizardStep ? 'bg-indigo-400' : 'bg-gray-200'}`} />
                     )}
                   </div>
                 ))}
-                <span className="ml-2 text-xs text-muted-foreground">
-                  {MONTHS[newMonth - 1]} {newYear}
-                </span>
+                <span className="ml-2 text-xs text-muted-foreground">{MONTHS[newMonth - 1]} {newYear}</span>
               </div>
-
               <div>
                 <CardTitle className={`text-lg ${currentStep.color}`}>
                   {currentStep.label} <span className="font-normal text-sm text-muted-foreground">— target {currentStep.target}%</span>
@@ -338,7 +550,6 @@ export default function DashboardPage() {
                 <p className="text-sm text-muted-foreground mt-0.5">{currentStep.description}</p>
               </div>
             </CardHeader>
-
             <CardContent className="pt-4 space-y-3">
               <div className="space-y-2">
                 {currentStep.items.map(name => (
@@ -352,36 +563,26 @@ export default function DashboardPage() {
                         step={1}
                         placeholder="0"
                         value={wizardPlanned[wizardKey(currentStep.key, name)] || ''}
-                        onChange={e => setPlanned(currentStep.key, name, parseFloat(e.target.value) || 0)}
+                        onChange={e => setWizardPlanned(prev => ({ ...prev, [wizardKey(currentStep.key, name)]: parseFloat(e.target.value) || 0 }))}
                         className="pl-6 text-right h-9 text-sm"
                       />
                     </div>
                   </div>
                 ))}
               </div>
-
               {stepTotal > 0 && (
                 <div className="flex justify-end pt-1 border-t">
-                  <span className="text-sm font-semibold">
-                    Step total: ${stepTotal.toLocaleString('en-CA', { maximumFractionDigits: 0 })}
-                  </span>
+                  <span className="text-sm font-semibold">Step total: {fmt(stepTotal)}</span>
                 </div>
               )}
-
               {error && <p className="text-sm text-destructive bg-destructive/10 rounded-md px-3 py-2">{error}</p>}
-
               <div className="flex justify-between pt-1">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => wizardStep === 0 ? setFormMode('select') : setWizardStep(s => s - 1)}
-                  className="gap-1"
-                >
+                <Button variant="outline" size="sm" onClick={() => wizardStep === 0 ? setFormMode('select') : setWizardStep(s => s - 1)} className="gap-1">
                   <ArrowLeft size={14} /> Back
                 </Button>
                 {isLastStep ? (
                   <Button size="sm" onClick={createFromWizard} disabled={submitting} className="gap-1">
-                    {submitting ? 'Creating...' : 'Create Budget'} <ArrowRight size={14} />
+                    {submitting ? 'Creating…' : 'Create Budget'} <ArrowRight size={14} />
                   </Button>
                 ) : (
                   <Button size="sm" onClick={() => setWizardStep(s => s + 1)} className="gap-1">
@@ -393,6 +594,7 @@ export default function DashboardPage() {
           </Card>
         )}
 
+        {/* Budget list */}
         {loading ? (
           <div className="flex justify-center py-12">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
