@@ -121,14 +121,23 @@ router.post('/:id/income', (req: AuthRequest, res: Response): void => {
   }
 
   const { name, amount } = req.body;
-  if (!name) {
+  if (!name || typeof name !== 'string' || name.trim().length === 0) {
     res.status(400).json({ error: 'name is required' });
+    return;
+  }
+  if (name.trim().length > 100) {
+    res.status(400).json({ error: 'name must be 100 characters or less' });
+    return;
+  }
+  const parsedAmount = parseFloat(amount);
+  if (amount !== undefined && (isNaN(parsedAmount) || parsedAmount < 0)) {
+    res.status(400).json({ error: 'amount must be a non-negative number' });
     return;
   }
 
   const result = db.prepare(
     'INSERT INTO income_sources (budget_id, name, amount) VALUES (?, ?, ?)'
-  ).run(req.params.id, name, amount || 0);
+  ).run(req.params.id, name.trim(), isNaN(parsedAmount) ? 0 : parsedAmount);
 
   res.status(201).json({ id: result.lastInsertRowid, budget_id: Number(req.params.id), name, amount: amount || 0 });
 });
@@ -145,14 +154,29 @@ router.post('/:id/items', (req: AuthRequest, res: Response): void => {
   }
 
   const { category, name, planned, actual } = req.body;
-  if (!category || !name) {
+  if (!category || !name || typeof name !== 'string' || name.trim().length === 0) {
     res.status(400).json({ error: 'category and name are required' });
+    return;
+  }
+  if (name.trim().length > 100) {
+    res.status(400).json({ error: 'name must be 100 characters or less' });
     return;
   }
 
   const validCategories = ['fundamentals', 'fun', 'future'];
   if (!validCategories.includes(category)) {
     res.status(400).json({ error: 'category must be fundamentals, fun, or future' });
+    return;
+  }
+
+  const parsedPlanned = parseFloat(planned);
+  const parsedActual = parseFloat(actual);
+  if (planned !== undefined && (isNaN(parsedPlanned) || parsedPlanned < 0)) {
+    res.status(400).json({ error: 'planned must be a non-negative number' });
+    return;
+  }
+  if (actual !== undefined && (isNaN(parsedActual) || parsedActual < 0)) {
+    res.status(400).json({ error: 'actual must be a non-negative number' });
     return;
   }
 
@@ -164,7 +188,7 @@ router.post('/:id/items', (req: AuthRequest, res: Response): void => {
 
   const result = db.prepare(
     'INSERT INTO budget_items (budget_id, category, name, planned, actual, sort_order) VALUES (?, ?, ?, ?, ?, ?)'
-  ).run(req.params.id, category, name, planned || 0, actual || 0, sort_order);
+  ).run(req.params.id, category, name.trim(), isNaN(parsedPlanned) ? 0 : parsedPlanned, isNaN(parsedActual) ? 0 : parsedActual, sort_order);
 
   res.status(201).json({
     id: result.lastInsertRowid,

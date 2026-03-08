@@ -5,7 +5,8 @@ import { cn } from '../lib/utils';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
-import { ArrowLeft, Plus, Trash2, TrendingUp } from 'lucide-react';
+import { ArrowLeft, Plus, Trash2 } from 'lucide-react';
+import Logo from '../components/Logo';
 
 const MONTHS = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -152,7 +153,7 @@ export default function BudgetPage() {
           <Button variant="ghost" size="icon" onClick={() => navigate('/')}>
             <ArrowLeft size={20} />
           </Button>
-          <TrendingUp className="text-indigo-600" size={22} />
+          <Logo size={26} />
           <h1 className="text-lg font-bold text-indigo-700">
             {MONTHS[budget.month - 1]} {budget.year}
           </h1>

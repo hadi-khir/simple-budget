@@ -3,7 +3,8 @@ import { api } from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader } from '../components/ui/card';
+import Logo from '../components/Logo';
 
 export default function AuthPage() {
   const [tab, setTab] = useState<'login' | 'signup'>('login');
@@ -34,7 +35,10 @@ export default function AuthPage() {
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
       <Card className="w-full max-w-md shadow-lg">
         <CardHeader className="text-center">
-          <CardTitle className="text-3xl font-bold text-indigo-700">Simple Budget</CardTitle>
+          <div className="flex items-center justify-center gap-3 mb-1">
+            <Logo size={40} />
+            <span className="text-3xl font-bold text-indigo-700">IST Budget</span>
+          </div>
           <CardDescription>Track your spending with the 50/30/20 rule</CardDescription>
         </CardHeader>
         <CardContent>

@@ -3,6 +3,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import path from 'path';
 import fs from 'fs';
+import rateLimit from 'express-rate-limit';
 import authRouter from './routes/auth';
 import budgetsRouter from './routes/budgets';
 import itemsRouter from './routes/items';
@@ -22,6 +23,15 @@ app.use(cors({
 }));
 app.use(express.json({ limit: '10kb' }));
 
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 300,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests, please try again later' },
+});
+
+app.use('/api', apiLimiter);
 app.use('/api/auth', authRouter);
 app.use('/api/budgets', budgetsRouter);
 app.use('/api', itemsRouter);

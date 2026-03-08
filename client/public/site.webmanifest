@@ -1,0 +1,17 @@
+{
+  "name": "IST Budget",
+  "short_name": "IST Budget",
+  "description": "Track your spending with the 50/30/20 rule",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#eef2ff",
+  "theme_color": "#4338ca",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

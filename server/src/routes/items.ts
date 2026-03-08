@@ -29,8 +29,17 @@ router.put('/income/:id', (req: AuthRequest, res: Response): void => {
   }
 
   const { name, amount } = req.body;
+  if (name !== undefined && (typeof name !== 'string' || name.trim().length === 0 || name.trim().length > 100)) {
+    res.status(400).json({ error: 'name must be between 1 and 100 characters' });
+    return;
+  }
+  const parsedAmount = amount !== undefined ? parseFloat(amount) : undefined;
+  if (parsedAmount !== undefined && (isNaN(parsedAmount) || parsedAmount < 0)) {
+    res.status(400).json({ error: 'amount must be a non-negative number' });
+    return;
+  }
   db.prepare('UPDATE income_sources SET name = COALESCE(?, name), amount = COALESCE(?, amount) WHERE id = ?')
-    .run(name ?? null, amount ?? null, req.params.id);
+    .run(name?.trim() ?? null, parsedAmount ?? null, req.params.id);
 
   const updated = db.prepare('SELECT * FROM income_sources WHERE id = ?').get(req.params.id);
   res.json(updated);
@@ -56,9 +65,23 @@ router.put('/items/:id', (req: AuthRequest, res: Response): void => {
   }
 
   const { name, planned, actual } = req.body;
+  if (name !== undefined && (typeof name !== 'string' || name.trim().length === 0 || name.trim().length > 100)) {
+    res.status(400).json({ error: 'name must be between 1 and 100 characters' });
+    return;
+  }
+  const parsedPlanned = planned !== undefined ? parseFloat(planned) : undefined;
+  const parsedActual = actual !== undefined ? parseFloat(actual) : undefined;
+  if (parsedPlanned !== undefined && (isNaN(parsedPlanned) || parsedPlanned < 0)) {
+    res.status(400).json({ error: 'planned must be a non-negative number' });
+    return;
+  }
+  if (parsedActual !== undefined && (isNaN(parsedActual) || parsedActual < 0)) {
+    res.status(400).json({ error: 'actual must be a non-negative number' });
+    return;
+  }
   db.prepare(
     'UPDATE budget_items SET name = COALESCE(?, name), planned = COALESCE(?, planned), actual = COALESCE(?, actual) WHERE id = ?'
-  ).run(name ?? null, planned ?? null, actual ?? null, req.params.id);
+  ).run(name?.trim() ?? null, parsedPlanned ?? null, parsedActual ?? null, req.params.id);
 
   const updated = db.prepare('SELECT * FROM budget_items WHERE id = ?').get(req.params.id);
   res.json(updated);
